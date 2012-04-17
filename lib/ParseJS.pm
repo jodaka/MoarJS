@@ -6,6 +6,8 @@ use File::Basename;
 use File::Stat;
 use utf8;
 use Closure;
+
+
 use Data::Dumper qw/Dumper/;
 
 $Data::Dumper::Terse = 1;
@@ -20,129 +22,135 @@ sub new {
     shift;
 }
 
+
+# here cache lives
 my %cache;
 
 
+# Main JS file processing routine.
+# Will parse file and store it in cache.
+# On every next run cache is being checked. If nodes in cache doesn't changed on disk,
+# no parsing is being done.
+#
 sub process {
 
-    my $self = shift;
-    my $node = shift;
+    my $self     = shift;
+    my $node     = shift;
     my $compress = shift;
 
-    my $deep = 0;
-
+    # recursively check node's timestamp and rebuild if needed
     local *recursive_check = sub {
+
         my $leaf = shift;
-
-        $deep++;
-
         my $mtime = (stat $leaf)[9];
 
-        # если поменялось время доступа, значит поменялась нода
+        # checking node timestamp
         if (!$cache{$leaf} || $cache{$leaf}{'timestamp'} != $mtime) {
             return 0;
-            #warn (Dumper(\%cache));
         }
 
-        # if (!$cache{$leaf} || !$cache{$leaf}{'deps'}) {
-        #     $self->parse($leaf, $compress);
-        # }
-
         for my $dep (@{$cache{$leaf}{'deps'}}) {
-            warn("deps scan $dep");
 
             if (!recursive_check($dep)) {
-                warn('scan fail');
-                delete $cache{$dep}; # обнуляем зависимость
-                $self->parse($dep, $compress);  # перестраиваем зависимость
+                delete $cache{$dep};        # dep node reset
+                $self->parse($dep);         # rebuilding dep
 
-                delete $cache{$leaf}; # обнуляем родителя
-                $self->parse($leaf, $compress); # перестраиваем родителя
+                delete $cache{$leaf};       # current node reset
+                $self->parse($leaf);        # rebuilding node
 
-                recursive_check($leaf);
+                #recursive_check($leaf);
             };
         }
 
-        $deep--;
+        return 1;
+
     };
 
-    warn(basename($node));
+    # first, check filename
+    # what starts with _ (underscore) would be just concatenated
     my $_filename = my $_realname = basename($node);
     $_realname =~ s/^_//;
     my $_dir      = dirname($node);
 
-    if ($_filename =~ /^_/ && -e $_dir."/".$_realname) {
+    my $need_compressing = $compress && $_filename !~ m/^_/;
 
+    if (-e $_dir."/".$_realname) {
+
+        # real path is real :)
         $node = $_dir."/".$_realname;
 
+        # check if node was modified
         if (!recursive_check($node)) {
-            warn('initial scan');
-            $self->parse($node, $compress);
+            $self->parse($node);
         };
 
-        if ($compress && !exists $cache{$node}{'compressed'}) {
-            warn(" ~~ COMPRESSING ");
+        # do we need to compress?
+        if ($need_compressing && !exists $cache{$node}{'compressed'}) {
             $cache{$node}{'compressed'} = Closure->compress($cache{$node}{'content'});
         }
 
-        return ($compress)
+        return ($need_compressing)
             ? $cache{$node}{'compressed'}
             : $cache{$node}{'content'};
     }
 
     return '';
-
-
 }
 
-# парсим JS файл на предмет наличия в нём
-# конструкций include()
+# recursively searching for include("") construction in JS files
+#
 sub parse {
 
-    my ($self, $file, $compress) = @_;
+    my ($self, $file) = @_;
     my $res = '';
 
+    # do we already have cached version?
     if (exists $cache{$file}) {
+
         return $cache{$file}{'content'};
 
     } else {
 
-        # no cache, or outdated
+        # no cache, or cache is outdated
         $cache{$file} = {
             'timestamp'  => '',
             'content'    => '',
             'deps'       => [],
         };
 
-        warn ("--> rebuilding $file");
-
         # reading file
         if (open(my $js, "<:encoding(UTF-8)", $file)) {
 
             my $dir = dirname($file);
-
             while (<$js>) {
+
                 if (m/\s*include\("(.*?)"\);/) {
-                    # Storing dependencies for file
+
                     my $inlinejs = $dir."/$1";
+                    # Storing dependencies for file
                     push @{$cache{$file}{'deps'}}, $inlinejs;
+                    # recursively parse file
                     $res .= $self->parse($inlinejs);
                 } else {
+                    # nothing interesting, just some JS sources
                     $res .= $_;
                 }
             }
             close($js);
+
+            # storing last modified timestamp
             $cache{$file}{'timestamp'} = (stat $file)[9];
-            $cache{$file}{'content'} = $res;
+            # and file contents
+            $cache{$file}{'content'}   = $res;
 
         } else {
+            # TODO FIXME here should be some die statement
             warn(" ~~~ can't open $file \n");
         }
 
         return $res;
     }
 }
-
 
 
 1;

@@ -6,18 +6,20 @@ use utf8;
 use ParseJS;
 use ETag;
 
-## Настройки
+## Settings # TODO FIXME move them to separate file
 use constant ROOT_URI  => '/';
 use constant ROOT_PATH => '/Users/jodaka/git/tv'; # TODO FIXME remove this
 use constant DEBUG     => 1; # 1/0
-use constant COMPRESS  => 0;
+use constant COMPRESS  => 1;
 
+# main routine
 sub startup {
 
     my $self = shift;
 
-    my %parsers;
     # Parsers
+    my %parsers;
+    # only JS for now
     $parsers{'js'} = ParseJS->new;
 
     # Helper function returning our model object
@@ -31,8 +33,7 @@ sub startup {
     ETag->register($self);
 
     # Make signed cookies secure
-    $self->secret('MojoJS');
-
+    $self->secret('MoarJS');
 
     # registering new types
     # for JS and CSS
@@ -54,8 +55,6 @@ sub startup {
         my $requestPath = ROOT_PATH.'/'.$self->param('js').'.js' || '';
 
         my $res = $self->js->process($requestPath, COMPRESS);
-
-        #my $res = (COMPRESS) ? Closure->compress($concat) : $concat;
 
         return $self->render(
             text   => $res,
