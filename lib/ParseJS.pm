@@ -7,9 +7,7 @@ use File::Stat;
 use utf8;
 use Closure;
 
-
 use Data::Dumper qw/Dumper/;
-
 $Data::Dumper::Terse = 1;
 $Data::Dumper::Indent = 1;
 $Data::Dumper::Useqq = 1;

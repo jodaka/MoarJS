@@ -2,23 +2,47 @@ package MojoJS;
 
 use Mojo::Base 'Mojolicious';
 use utf8;
-
+use Cwd qw/getcwd/;
+use JSON qw/from_json/;
 use ParseJS;
 use ETag;
 
-## Settings # TODO FIXME move them to separate file
-use constant ROOT_URI  => '/';
-use constant ROOT_PATH => '/Users/jodaka/git/tv'; # TODO FIXME remove this
-use constant DEBUG     => 1; # 1/0
-use constant COMPRESS  => 1;
+my %sites;
+
+sub read_config {
+    my $self = shift;
+
+    my $current_dir = getcwd();
+
+    if (-e "$current_dir/moarjs.config") {
+        undef $/;
+        if (open(my $cfg, "<:encoding(UTF-8)", "$current_dir/moarjs.config")) {
+            %sites = %{from_json(<$cfg>)};
+            close($cfg);
+        } else {
+            # no rights to read config
+            die("Can't read moarjs.config in the $current_dir: $!");
+        }
+    } else {
+        # no config file found
+        die("Can't find moarjs.config in the $current_dir");
+    }
+
+    return 1;
+    # if (-e moarjs.config)
+}
 
 # main routine
 sub startup {
 
     my $self = shift;
 
+    # reading config file
+    $self->read_config();
+
     # Parsers
     my %parsers;
+
     # only JS for now
     $parsers{'js'} = ParseJS->new;
 
@@ -45,27 +69,40 @@ sub startup {
     # configure routing
     my $r = $self->routes;
 
-    # handling of JS files
-
-    $r->get('/(:js*.js)' => sub {
-
-        my $self = shift;
-
-        # Query parameters
-        my $requestPath = ROOT_PATH.'/'.$self->param('js').'.js' || '';
-
-        my $res = $self->js->process($requestPath, COMPRESS);
-
-        return $self->render(
-            text   => $res,
-            format => 'JS'
-        );
-    });
-
     # TODO FIXME check this and remove
-    $r->any('/' => sub {
+    $r->get('/(:url*)'  => sub {
+
         my $self = shift;
-        return $self->render(txt => 'halo');
+        my $url  = $self->param('url');
+
+        my $hostname = $self->req->url->base->host;
+        my @path = @{$self->req->url->path->parts};
+
+        # last part is filename, so we check extension
+        unless ($path[$#path] =~ /\.(?:js|css)$/) {
+            return $self->render(text => "$url isn't JS or CSS");
+        }
+
+        # check if url have proper file extension
+
+        # check hostname against all configured urls
+        for my $regex_url (keys %sites) {
+
+            if ($hostname =~ /$regex_url/) {
+
+                my $request_path = $sites{$regex_url}{'root_path'} . $self->req->url->path->to_string;
+                my $res = $self->js->process($request_path, $sites{$regex_url}{'compress'});
+
+                return $self->render(
+                    text   => $res,
+                    format => 'JS'
+                );
+
+            }
+
+        }
+
+        return $self->render(text => "Cant't find any proper configuration for handling $url");
     });
 };
 
