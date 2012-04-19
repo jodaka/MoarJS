@@ -4,21 +4,37 @@ use Mojo::Base 'Mojolicious';
 use utf8;
 use Cwd qw/getcwd/;
 use JSON qw/from_json/;
-use ParseJS;
+
+use Parse::CSS;
+use Parse::JS;
 use ETag;
 
 my %sites;
 
+# TODO FIXME (better error handling)
+# trying to read and parse
 sub read_config {
     my $self = shift;
 
     my $current_dir = getcwd();
 
     if (-e "$current_dir/moarjs.config") {
-        undef $/;
+
+
         if (open(my $cfg, "<:encoding(UTF-8)", "$current_dir/moarjs.config")) {
-            %sites = %{from_json(<$cfg>)};
+            my $config = '';
+            while(<$cfg>) {
+                $config .= $_;
+            }
             close($cfg);
+
+            eval {
+                %sites = %{from_json($config)};
+            };
+
+            if ($@) {
+                die("Bad config format: $@");
+            }
         } else {
             # no rights to read config
             die("Can't read moarjs.config in the $current_dir: $!");
@@ -42,16 +58,8 @@ sub startup {
 
     # Parsers
     my %parsers;
-
-    # only JS for now
-    $parsers{'js'} = ParseJS->new;
-
-    # Helper function returning our model object
-    $self->helper(
-        js => sub {
-            return $parsers{'js'}
-        }
-    );
+    $parsers{'js'}  = Parse::JS->new;
+    $parsers{'css'} = Parse::CSS->new;
 
     #plugin for ETag header
     ETag->register($self);
@@ -62,8 +70,8 @@ sub startup {
     # registering new types
     # for JS and CSS
     $self->types->type(
-        JS  => 'application/javascript; charset=utf-8',
-        CSS => 'text/css; charset=utf-8'
+        js  => 'application/javascript; charset=utf-8',
+        css => 'text/css; charset=utf-8'
     );
 
     # configure routing
@@ -75,15 +83,16 @@ sub startup {
         my $self = shift;
         my $url  = $self->param('url');
 
-        my $hostname = $self->req->url->base->host;
-        my @path = @{$self->req->url->path->parts};
+        my $hostname  = $self->req->url->base->host;
+        my @path      = @{$self->req->url->path->parts};
+        my $extension = '';
 
         # last part is filename, so we check extension
-        unless ($path[$#path] =~ /\.(?:js|css)$/) {
+        unless ($path[$#path] =~ /\.(js|css)$/) {
             return $self->render(text => "$url isn't JS or CSS");
+        } else {
+            $extension = lc($1);
         }
-
-        # check if url have proper file extension
 
         # check hostname against all configured urls
         for my $regex_url (keys %sites) {
@@ -91,11 +100,12 @@ sub startup {
             if ($hostname =~ /$regex_url/) {
 
                 my $request_path = $sites{$regex_url}{'root_path'} . $self->req->url->path->to_string;
-                my $res = $self->js->process($request_path, $sites{$regex_url}{'compress'});
+
+                my $res = $parsers{$extension}->process($request_path, $sites{$regex_url});
 
                 return $self->render(
                     text   => $res,
-                    format => 'JS'
+                    format => $extension
                 );
 
             }

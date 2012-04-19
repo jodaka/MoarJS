@@ -1,4 +1,4 @@
-package ParseJS;
+package Parse::JS;
 
 use strict;
 use warnings;
@@ -7,23 +7,15 @@ use File::Stat;
 use utf8;
 use Closure;
 
-use Data::Dumper qw/Dumper/;
-$Data::Dumper::Terse = 1;
-$Data::Dumper::Indent = 1;
-$Data::Dumper::Useqq = 1;
-$Data::Dumper::Deparse = 1;
-$Data::Dumper::Quotekeys = 0;
-$Data::Dumper::Sortkeys = 1;
-
 sub new {
     bless {},
     shift;
 }
 
-
 # here cache lives
 my %cache;
-
+my $recursion_level = 0;
+my %params;
 
 # Main JS file processing routine.
 # Will parse file and store it in cache.
@@ -32,9 +24,11 @@ my %cache;
 #
 sub process {
 
-    my $self     = shift;
-    my $node     = shift;
-    my $compress = shift;
+    my $self        = shift;
+    my $node        = shift;
+    my $params      = shift;
+
+    %params = %{$params};
 
     # recursively check node's timestamp and rebuild if needed
     local *recursive_check = sub {
@@ -70,7 +64,7 @@ sub process {
     $_realname =~ s/^_//;
     my $_dir      = dirname($node);
 
-    my $need_compressing = $compress && $_filename !~ m/^_/;
+    my $need_compressing = $params{'compress'}  && $_filename !~ m/^_/;
 
     if (-e $_dir."/".$_realname) {
 
@@ -121,17 +115,35 @@ sub parse {
 
             my $dir = dirname($file);
             while (<$js>) {
+                my $str = $_;
 
                 if (m/\s*include\("(.*?)"\);/) {
 
-                    my $inlinejs = $dir."/$1";
+                    my $inline_js = $dir."/$1";
+
                     # Storing dependencies for file
-                    push @{$cache{$file}{'deps'}}, $inlinejs;
-                    # recursively parse file
-                    $res .= $self->parse($inlinejs);
+                    push @{$cache{$file}{'deps'}}, $inline_js;
+
+                    if ($params{'debug'}) {
+
+                        $res .= "    " x $recursion_level . qq~/* ↪ $inline_js */\n~;
+                    }
+
+                    $recursion_level++;
+
+                    $res .= $self->parse($inline_js);
+
+                    if ($params{'debug'}) {
+                        $res .= "    " x $recursion_level . qq~/* ↩ $inline_js */\n\n\n~;
+                    }
+
+                    $recursion_level--;
+
                 } else {
-                    # nothing interesting, just some JS sources
-                    $res .= $_;
+                    # nothing interesting, just some JS
+                    $res .= ($params{'debug'})
+                        ? "    " x ($recursion_level+1) . $str
+                        : $str;
                 }
             }
             close($js);
