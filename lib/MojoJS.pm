@@ -1,13 +1,20 @@
 package MojoJS;
 
 use Mojo::Base 'Mojolicious';
+use Mojo::IOLoop;
+
+# some common stuff
 use utf8;
 use Cwd qw/getcwd/;
 use JSON qw/from_json/;
 
+# our parsers and plugins
 use Parse::CSS;
 use Parse::JS;
 use ETag;
+
+
+my $CACHE_CLEANUP_TIMEOUT = 60*5; # once in 5 minutes we should cleanup stale cache
 
 my %sites;
 
@@ -60,6 +67,15 @@ sub startup {
     my %parsers;
     $parsers{'js'}  = Parse::JS->new;
     $parsers{'css'} = Parse::CSS->new;
+
+    # Setting up cache cleanup timer
+    my $cache_cleanup = Mojo::IOLoop->recurring(
+        $CACHE_CLEANUP_TIMEOUT => sub {
+            for (keys %parsers) {
+                $parsers{$_}->cache_cleanup($CACHE_CLEANUP_TIMEOUT);
+            }
+        }
+    );
 
     #plugin for ETag header
     ETag->register($self);

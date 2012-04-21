@@ -6,6 +6,7 @@ use File::Basename;
 use File::Stat;
 use utf8;
 use Closure;
+use Data::Printer;
 
 sub new {
     bless {},
@@ -16,6 +17,19 @@ sub new {
 my %cache;
 my $recursion_level = 0;
 my %params;
+
+# Cleaning stale cache items
+sub cache_cleanup {
+    my $self = shift;
+    my $cleanup_timeout = shift;
+    my $now = time();
+
+    for my $file (keys %cache) {
+        if ($now - $cache{$file}{'last_access_time'} > $cleanup_timeout) {
+            delete $cache{$file};
+        }
+    }
+}
 
 # Main JS file processing routine.
 # Will parse file and store it in cache.
@@ -81,6 +95,8 @@ sub process {
             $cache{$node}{'compressed'} = Closure->compress($cache{$node}{'content'});
         }
 
+        $cache{$node}{'last_access_time'} = time();
+
         return ($need_compressing)
             ? $cache{$node}{'compressed'}
             : $cache{$node}{'content'};
@@ -98,16 +114,17 @@ sub parse {
 
     # do we already have cached version?
     if (exists $cache{$file}) {
-
+        $cache{$file}{'last_access_time'} = time();
         return $cache{$file}{'content'};
 
     } else {
 
         # no cache, or cache is outdated
         $cache{$file} = {
-            'timestamp'  => '',
-            'content'    => '',
-            'deps'       => [],
+            'timestamp'        => '',
+            'content'          => '',
+            'deps'             => [],
+            'last_access_time' => 0,
         };
 
         # reading file
@@ -146,8 +163,10 @@ sub parse {
                         : $str;
                 }
             }
-            close($js);
 
+            close($js);
+            # stroring last access time
+            $cache{$file}{'last_access_time'} = time();
             # storing last modified timestamp
             $cache{$file}{'timestamp'} = (stat $file)[9];
             # and file contents
