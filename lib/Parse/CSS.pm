@@ -133,7 +133,7 @@ sub parse {
             while (<$css>) {
                 my $str = $_;
 
-                if ($str =~ m/\s*\@import url\((.*?)\);/) {
+                if ($str =~ m/\s*\@import (?:url\()?(?:'|")?(.*?)(?:'|")?\)?;/) {
 
                     my $inline_css = $dir."/$1";
 

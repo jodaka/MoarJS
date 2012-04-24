@@ -13,7 +13,6 @@ use Parse::CSS;
 use Parse::JS;
 use ETag;
 
-
 my $CACHE_CLEANUP_TIMEOUT = 60*5; # once in 5 minutes we should cleanup stale cache
 
 my %sites;
@@ -59,6 +58,10 @@ sub read_config {
 sub startup {
 
     my $self = shift;
+
+    $self->plugin(
+        'PoweredBy' => ('name' => 'MoarJS')
+    );
 
     # reading config file
     $self->read_config();
