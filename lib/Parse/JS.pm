@@ -134,7 +134,7 @@ sub parse {
             while (<$js>) {
                 my $str = $_;
 
-                if (m/\s*include\("(.*?)"\);/) {
+                if (m/\s*include\((?:"|')(.*?)(?:"|')\);/) {
 
                     my $inline_js = $dir."/$1";
 
